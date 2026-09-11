@@ -118,22 +118,48 @@ def _lab11_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     treatment = report["treatment"]
     takeover = report["takeover"]
     broken = report["planted_no_fencing"]
+    tokens_granted = sum(item["token"] is not None for item in treatment["results"])
+    authoritative_commits = sum(item["committed"] for item in treatment["results"])
     passed = (
         baseline["return_codes"] == [0, 0]
         and baseline["physical_effects"] == 2
         and treatment["return_codes"] == [0, 0]
         and treatment["physical_effects"] == 1
-        and sum(item["token"] is not None for item in treatment["results"]) == 1
-        and sum(item["committed"] for item in treatment["results"]) == 1
+        and tokens_granted == 1
+        and authoritative_commits == 1
         and takeover["token_a"] == 1
         and takeover["token_b"] == 2
         and takeover["stale_commit_accepted"] is False
         and takeover["takeover_commit_accepted"] is True
         and len(takeover["effects"]) == 1
     )
+
+    # Which worker wins the simultaneous lease race is intentionally nondeterministic.
+    # The semantic eval records only architecture invariants, not incidental winner identity.
+    baseline_semantic = {
+        "return_codes": baseline["return_codes"],
+        "physical_effects": baseline["physical_effects"],
+    }
+    treatment_semantic = {
+        "return_codes": treatment["return_codes"],
+        "physical_effects": treatment["physical_effects"],
+        "lease_tokens_granted": tokens_granted,
+        "authoritative_commits": authoritative_commits,
+        "takeover": {
+            "token_a": takeover["token_a"],
+            "token_b": takeover["token_b"],
+            "stale_commit_accepted": takeover["stale_commit_accepted"],
+            "takeover_commit_accepted": takeover["takeover_commit_accepted"],
+            "physical_effects": len(takeover["effects"]),
+        },
+    }
+    broken_semantic = {
+        "physical_effects": broken["physical_effects"],
+        "tokens": sorted(effect["token"] for effect in broken["effects"]),
+    }
     return (
-        {"name": "lab11-worker-lease-fencing", "baseline": baseline, "treatment": {"race": treatment, "takeover": takeover}, "claim_passed": passed},
-        {"name": "planted-broken-lease-without-fencing", "rejected_by_grader": broken["physical_effects"] > 1, "observed": broken},
+        {"name": "lab11-worker-lease-fencing", "baseline": baseline_semantic, "treatment": treatment_semantic, "claim_passed": passed},
+        {"name": "planted-broken-lease-without-fencing", "rejected_by_grader": broken["physical_effects"] > 1, "observed": broken_semantic},
     )
 
 
