@@ -11,6 +11,7 @@ from .lab07 import run_crash_gap_experiment
 from .lab08 import run_event_order_experiment
 from .lab09 import run_hitl_experiment
 from .lab10 import run_dag_experiment
+from .lab11 import run_duplicate_worker_experiment
 
 
 def _strip_time(value: Any) -> Any:
@@ -110,14 +111,41 @@ def _lab10_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
 
+def _lab11_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_duplicate_worker_experiment(Path(directory))
+    baseline = report["baseline"]
+    treatment = report["treatment"]
+    takeover = report["takeover"]
+    broken = report["planted_no_fencing"]
+    passed = (
+        baseline["return_codes"] == [0, 0]
+        and baseline["physical_effects"] == 2
+        and treatment["return_codes"] == [0, 0]
+        and treatment["physical_effects"] == 1
+        and sum(item["token"] is not None for item in treatment["results"]) == 1
+        and sum(item["committed"] for item in treatment["results"]) == 1
+        and takeover["token_a"] == 1
+        and takeover["token_b"] == 2
+        and takeover["stale_commit_accepted"] is False
+        and takeover["takeover_commit_accepted"] is True
+        and len(takeover["effects"]) == 1
+    )
+    return (
+        {"name": "lab11-worker-lease-fencing", "baseline": baseline, "treatment": {"race": treatment, "takeover": takeover}, "claim_passed": passed},
+        {"name": "planted-broken-lease-without-fencing", "rejected_by_grader": broken["physical_effects"] > 1, "observed": broken},
+    )
+
+
 def run_architecture_suite(seed: int) -> dict[str, Any]:
     prior = run_suite(seed)
     lab07, neg07 = _lab07_comparison()
     lab08, neg08 = _lab08_comparison()
     lab09, neg09 = _lab09_comparison()
     lab10, neg10 = _lab10_comparison()
-    comparisons = [*prior["comparisons"], lab07, lab08, lab09, lab10]
-    negatives = [prior["negative_control"], neg07, neg08, neg09, neg10]
+    lab11, neg11 = _lab11_comparison()
+    comparisons = [*prior["comparisons"], lab07, lab08, lab09, lab10, lab11]
+    negatives = [prior["negative_control"], neg07, neg08, neg09, neg10, neg11]
     suite_passed = all(item["claim_passed"] for item in comparisons) and all(
         item["rejected_by_grader"] for item in negatives
     )
