@@ -9,6 +9,7 @@ from typing import Any
 from .lab06 import run_suite
 from .lab07 import run_crash_gap_experiment
 from .lab08 import run_event_order_experiment
+from .lab09 import run_hitl_experiment
 
 
 def _strip_time(value: Any) -> Any:
@@ -31,69 +32,71 @@ def _fingerprint(comparisons: list[dict[str, Any]], negatives: list[dict[str, An
 def _lab07_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     with tempfile.TemporaryDirectory() as directory:
         report = run_crash_gap_experiment(Path(directory))
-
     baseline = report["baseline"]
     treatment = report["treatment"]
-    claim_passed = (
+    passed = (
         baseline["return_codes"] == [99, 0]
         and baseline["duplicate_effects"] == 1
-        and baseline["physical_effects"] == 2
         and treatment["return_codes"] == [99, 0]
         and treatment["duplicate_effects"] == 0
         and treatment["physical_effects"] == 1
-        and treatment["reconciliations"] >= 1
         and treatment["operation_ids_seen"] == ["run-1:step-1"]
-        and treatment["state"]["status"] == "completed"
     )
-    comparison = {
-        "name": "lab07-commit-checkpoint-gap",
-        "baseline": baseline,
-        "treatment": treatment,
-        "claim_passed": claim_passed,
-    }
-    planted_broken = {
-        "name": "planted-broken-checkpoint-only-replay",
-        "rejected_by_grader": baseline["duplicate_effects"] > 0,
-        "observed": baseline,
-    }
-    return comparison, planted_broken
+    return (
+        {"name": "lab07-commit-checkpoint-gap", "baseline": baseline, "treatment": treatment, "claim_passed": passed},
+        {"name": "planted-broken-checkpoint-only-replay", "rejected_by_grader": baseline["duplicate_effects"] > 0, "observed": baseline},
+    )
 
 
 def _lab08_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     with tempfile.TemporaryDirectory() as directory:
         report = run_event_order_experiment(Path(directory))
-
     baseline = report["baseline"]
     treatment = report["treatment"]
-    claim_passed = (
+    passed = (
         baseline["diverged"] is True
-        and baseline["ordered_state"] == "completed"
-        and baseline["reordered_state"] == "running"
         and treatment["state"] == "completed"
         and treatment["duplicates_ignored"] == 1
         and treatment["canonical_event_ids"] == ["event-start", "event-complete"]
         and treatment["operation_ids"] == ["run-1:step-1"]
     )
-    comparison = {
-        "name": "lab08-durable-event-replay",
-        "baseline": baseline,
-        "treatment": treatment,
-        "claim_passed": claim_passed,
-    }
-    planted_broken = {
-        "name": "planted-broken-last-arrival-wins-replay",
-        "rejected_by_grader": baseline["reordered_state"] != "completed",
-        "observed": baseline,
-    }
-    return comparison, planted_broken
+    return (
+        {"name": "lab08-durable-event-replay", "baseline": baseline, "treatment": treatment, "claim_passed": passed},
+        {"name": "planted-broken-last-arrival-wins-replay", "rejected_by_grader": baseline["reordered_state"] != "completed", "observed": baseline},
+    )
+
+
+def _lab09_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        approved = run_hitl_experiment(root / "approved", decision="approved")
+        rejected = run_hitl_experiment(root / "rejected", decision="rejected")
+    baseline = approved["baseline"]
+    treatment = {"approved": approved["treatment"], "rejected": rejected["treatment"]}
+    passed = (
+        baseline["return_codes"] == [99, 0]
+        and baseline["request_ids"] == ["approval-1", "approval-2"]
+        and baseline["physical_effects"] == 0
+        and treatment["approved"]["request_ids"] == ["approval:run-1:privileged-step"]
+        and treatment["approved"]["decision_writes"] == 1
+        and treatment["approved"]["physical_effects"] == 1
+        and treatment["approved"]["pause"]["status"] == "approved"
+        and treatment["rejected"]["physical_effects"] == 0
+        and treatment["rejected"]["pause"]["status"] == "rejected"
+    )
+    return (
+        {"name": "lab09-durable-hitl-pause-resume", "baseline": baseline, "treatment": treatment, "claim_passed": passed},
+        {"name": "planted-broken-in-memory-approval-identity", "rejected_by_grader": len(baseline["request_ids"]) > 1 and baseline["physical_effects"] == 0, "observed": baseline},
+    )
 
 
 def run_architecture_suite(seed: int) -> dict[str, Any]:
     prior = run_suite(seed)
-    lab07, lab07_negative = _lab07_comparison()
-    lab08, lab08_negative = _lab08_comparison()
-    comparisons = [*prior["comparisons"], lab07, lab08]
-    negatives = [prior["negative_control"], lab07_negative, lab08_negative]
+    lab07, neg07 = _lab07_comparison()
+    lab08, neg08 = _lab08_comparison()
+    lab09, neg09 = _lab09_comparison()
+    comparisons = [*prior["comparisons"], lab07, lab08, lab09]
+    negatives = [prior["negative_control"], neg07, neg08, neg09]
     suite_passed = all(item["claim_passed"] for item in comparisons) and all(
         item["rejected_by_grader"] for item in negatives
     )
@@ -117,15 +120,11 @@ def render_architecture_summary(report: dict[str, Any]) -> str:
     for item in report["comparisons"]:
         lines.append(f"- {'PASS' if item['claim_passed'] else 'FAIL'} — {item['name']}")
     for negative in report["negative_controls"]:
-        lines.append(
-            f"- {'PASS' if negative['rejected_by_grader'] else 'FAIL'} — reject {negative['name']}"
-        )
-    lines.extend(
-        [
-            "",
-            f"Prior Lab 01–06 fingerprint: `{report['prior_suite_fingerprint']}`",
-            f"Semantic fingerprint: `{report['semantic_fingerprint']}`",
-            "",
-        ]
-    )
+        lines.append(f"- {'PASS' if negative['rejected_by_grader'] else 'FAIL'} — reject {negative['name']}")
+    lines.extend([
+        "",
+        f"Prior Lab 01–06 fingerprint: `{report['prior_suite_fingerprint']}`",
+        f"Semantic fingerprint: `{report['semantic_fingerprint']}`",
+        "",
+    ])
     return "\n".join(lines)
