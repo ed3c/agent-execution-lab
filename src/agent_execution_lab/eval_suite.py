@@ -8,6 +8,7 @@ from typing import Any
 
 from .lab06 import run_suite
 from .lab07 import run_crash_gap_experiment
+from .lab08 import run_event_order_experiment
 
 
 def _strip_time(value: Any) -> Any:
@@ -58,11 +59,41 @@ def _lab07_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     return comparison, planted_broken
 
 
+def _lab08_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_event_order_experiment(Path(directory))
+
+    baseline = report["baseline"]
+    treatment = report["treatment"]
+    claim_passed = (
+        baseline["diverged"] is True
+        and baseline["ordered_state"] == "completed"
+        and baseline["reordered_state"] == "running"
+        and treatment["state"] == "completed"
+        and treatment["duplicates_ignored"] == 1
+        and treatment["canonical_event_ids"] == ["event-start", "event-complete"]
+        and treatment["operation_ids"] == ["run-1:step-1"]
+    )
+    comparison = {
+        "name": "lab08-durable-event-replay",
+        "baseline": baseline,
+        "treatment": treatment,
+        "claim_passed": claim_passed,
+    }
+    planted_broken = {
+        "name": "planted-broken-last-arrival-wins-replay",
+        "rejected_by_grader": baseline["reordered_state"] != "completed",
+        "observed": baseline,
+    }
+    return comparison, planted_broken
+
+
 def run_architecture_suite(seed: int) -> dict[str, Any]:
     prior = run_suite(seed)
     lab07, lab07_negative = _lab07_comparison()
-    comparisons = [*prior["comparisons"], lab07]
-    negatives = [prior["negative_control"], lab07_negative]
+    lab08, lab08_negative = _lab08_comparison()
+    comparisons = [*prior["comparisons"], lab07, lab08]
+    negatives = [prior["negative_control"], lab07_negative, lab08_negative]
     suite_passed = all(item["claim_passed"] for item in comparisons) and all(
         item["rejected_by_grader"] for item in negatives
     )
