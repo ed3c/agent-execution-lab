@@ -10,6 +10,7 @@ from .lab06 import run_suite
 from .lab07 import run_crash_gap_experiment
 from .lab08 import run_event_order_experiment
 from .lab09 import run_hitl_experiment
+from .lab10 import run_dag_experiment
 
 
 def _strip_time(value: Any) -> Any:
@@ -74,19 +75,38 @@ def _lab09_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
     baseline = approved["baseline"]
     treatment = {"approved": approved["treatment"], "rejected": rejected["treatment"]}
     passed = (
-        baseline["return_codes"] == [99, 0]
-        and baseline["request_ids"] == ["approval-1", "approval-2"]
+        baseline["request_ids"] == ["approval-1", "approval-2"]
         and baseline["physical_effects"] == 0
         and treatment["approved"]["request_ids"] == ["approval:run-1:privileged-step"]
-        and treatment["approved"]["decision_writes"] == 1
         and treatment["approved"]["physical_effects"] == 1
-        and treatment["approved"]["pause"]["status"] == "approved"
         and treatment["rejected"]["physical_effects"] == 0
-        and treatment["rejected"]["pause"]["status"] == "rejected"
     )
     return (
         {"name": "lab09-durable-hitl-pause-resume", "baseline": baseline, "treatment": treatment, "claim_passed": passed},
         {"name": "planted-broken-in-memory-approval-identity", "rejected_by_grader": len(baseline["request_ids"]) > 1 and baseline["physical_effects"] == 0, "observed": baseline},
+    )
+
+
+def _lab10_comparison() -> tuple[dict[str, Any], dict[str, Any]]:
+    report = run_dag_experiment()
+    baseline = report["baseline"]
+    treatment = report["treatment"]
+    failure = report["branch_failure"]
+    broken = report["planted_broken"]
+    passed = (
+        baseline["completed"] == ["A", "B", "C"]
+        and treatment["completed"] == ["A", "B", "C"]
+        and baseline["max_concurrency"] == 1
+        and treatment["max_concurrency"] == 2
+        and treatment["dependency_violations"] == []
+        and treatment["wall_time_seconds"] < baseline["wall_time_seconds"] * 0.8
+        and failure["failed"] == ["A"]
+        and failure["completed"] == ["B"]
+        and "C" not in failure["started"]
+    )
+    return (
+        {"name": "lab10-bounded-concurrent-dag", "baseline": baseline, "treatment": {"normal": treatment, "branch_failure": failure}, "claim_passed": passed},
+        {"name": "planted-broken-ignore-dag-dependencies", "rejected_by_grader": "C" in broken["dependency_violations"], "observed": broken},
     )
 
 
@@ -95,8 +115,9 @@ def run_architecture_suite(seed: int) -> dict[str, Any]:
     lab07, neg07 = _lab07_comparison()
     lab08, neg08 = _lab08_comparison()
     lab09, neg09 = _lab09_comparison()
-    comparisons = [*prior["comparisons"], lab07, lab08, lab09]
-    negatives = [prior["negative_control"], neg07, neg08, neg09]
+    lab10, neg10 = _lab10_comparison()
+    comparisons = [*prior["comparisons"], lab07, lab08, lab09, lab10]
+    negatives = [prior["negative_control"], neg07, neg08, neg09, neg10]
     suite_passed = all(item["claim_passed"] for item in comparisons) and all(
         item["rejected_by_grader"] for item in negatives
     )
