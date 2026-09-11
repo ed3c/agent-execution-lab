@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agent_execution_lab.lab06 import render_summary, run_suite
+from agent_execution_lab.eval_suite import render_architecture_summary, run_architecture_suite
 
 
 def main() -> int:
@@ -16,13 +16,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=17)
     args = parser.parse_args()
 
-    report = run_suite(args.seed)
+    report = run_architecture_suite(args.seed)
     evidence_dir = ROOT / "evidence" / "experiments"
     evidence_dir.mkdir(parents=True, exist_ok=True)
-    json_path = evidence_dir / f"lab06-seed-{args.seed}.json"
-    md_path = evidence_dir / f"lab06-seed-{args.seed}.md"
+    json_path = evidence_dir / f"architecture-eval-seed-{args.seed}.json"
+    md_path = evidence_dir / f"architecture-eval-seed-{args.seed}.md"
     json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    summary = render_summary(report)
+    summary = render_architecture_summary(report)
     md_path.write_text(summary, encoding="utf-8")
     print(summary)
     print(f"JSON: {json_path}")
