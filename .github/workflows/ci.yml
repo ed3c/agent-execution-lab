@@ -17,5 +17,9 @@ jobs:
         run: python -m pip install -e '.[dev]'
       - name: Test
         run: pytest -q
-      - name: Reproduce Lab 01 evidence
-        run: python labs/01-agent-loop/experiment.py
+      - name: Reproduce lab evidence
+        run: |
+          for experiment in labs/*/experiment.py; do
+            echo "==> $experiment"
+            python "$experiment"
+          done
