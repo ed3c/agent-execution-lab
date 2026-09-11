@@ -17,9 +17,11 @@ jobs:
         run: python -m pip install -e '.[dev]'
       - name: Test
         run: pytest -q
-      - name: Reproduce lab evidence
+      - name: Reproduce individual lab evidence
         run: |
           for experiment in labs/*/experiment.py; do
             echo "==> $experiment"
             python "$experiment"
           done
+      - name: Run integrated architecture eval
+        run: python labs/06-eval-harness/run.py --seed 17
