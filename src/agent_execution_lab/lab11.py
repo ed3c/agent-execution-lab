@@ -139,6 +139,24 @@ class FencedEffectService:
         return _read_json(self.effects_path, {"effects": []})
 
 
+class UnfencedEffectService:
+    """Planted broken sink: accepts any lease token, including an expired owner."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lock_path = path.with_suffix(path.suffix + ".lock")
+
+    def commit(self, *, operation_id: str, worker_id: str, token: int) -> None:
+        _append_json_line(
+            self.path,
+            self.lock_path,
+            {"operation_id": operation_id, "worker_id": worker_id, "token": token},
+        )
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        return _read_json_lines(self.path)
+
+
 def _baseline_worker(
     state_path: str,
     effects_path: str,
@@ -203,6 +221,7 @@ def _spawn_pair(target: Any, args_builder: Any) -> list[int]:
 
 def run_duplicate_worker_experiment(root: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
+    operation_id = stable_operation_id("run-1", "step-1")
 
     baseline_root = root / "baseline"
     baseline_root.mkdir(parents=True, exist_ok=True)
@@ -239,21 +258,32 @@ def run_duplicate_worker_experiment(root: Path) -> dict[str, Any]:
     takeover_lease = LeaseStore(takeover_root / "lease.json")
     token_a = takeover_lease.acquire(step_id="step-1", worker_id="worker-a", now=0, ttl=5)
     token_b = takeover_lease.acquire(step_id="step-1", worker_id="worker-b", now=6, ttl=5)
-    effects = FencedEffectService(takeover_root / "effects.json", takeover_lease)
-    stale_commit = effects.commit(
+    if token_a is None or token_b is None:
+        raise RuntimeError("expected sequential lease acquisition across expiry")
+    fenced_effects = FencedEffectService(takeover_root / "effects.json", takeover_lease)
+    stale_commit = fenced_effects.commit(
         step_id="step-1",
-        operation_id=stable_operation_id("run-1", "step-1"),
+        operation_id=operation_id,
         worker_id="worker-a",
-        token=int(token_a),
+        token=token_a,
         now=7,
     )
-    takeover_commit = effects.commit(
+    takeover_commit = fenced_effects.commit(
         step_id="step-1",
-        operation_id=stable_operation_id("run-1", "step-1"),
+        operation_id=operation_id,
         worker_id="worker-b",
-        token=int(token_b),
+        token=token_b,
         now=7,
     )
+
+    no_fencing_root = root / "no-fencing"
+    no_fencing_root.mkdir(parents=True, exist_ok=True)
+    no_fencing = UnfencedEffectService(no_fencing_root / "effects.jsonl")
+    # Same expired-owner timeline, but the downstream sink never checks the
+    # authoritative fencing token. Both the stale and current owner commit.
+    no_fencing.commit(operation_id=operation_id, worker_id="worker-a", token=token_a)
+    no_fencing.commit(operation_id=operation_id, worker_id="worker-b", token=token_b)
+    no_fencing_effects = no_fencing.snapshot()
 
     return {
         "baseline": {
@@ -273,6 +303,10 @@ def run_duplicate_worker_experiment(root: Path) -> dict[str, Any]:
             "token_b": token_b,
             "stale_commit_accepted": stale_commit,
             "takeover_commit_accepted": takeover_commit,
-            "effects": effects.snapshot()["effects"],
+            "effects": fenced_effects.snapshot()["effects"],
+        },
+        "planted_no_fencing": {
+            "physical_effects": len(no_fencing_effects),
+            "effects": no_fencing_effects,
         },
     }
