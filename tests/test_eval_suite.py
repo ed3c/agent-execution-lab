@@ -3,13 +3,13 @@ from __future__ import annotations
 from agent_execution_lab.eval_suite import run_architecture_suite
 
 
-def test_extended_suite_proves_seven_claims_and_rejects_three_negative_controls() -> None:
+def test_extended_suite_proves_eight_claims_and_rejects_four_negative_controls() -> None:
     report = run_architecture_suite(seed=17)
 
     assert report["suite_passed"] is True
-    assert len(report["comparisons"]) == 7
+    assert len(report["comparisons"]) == 8
     assert all(item["claim_passed"] for item in report["comparisons"])
-    assert len(report["negative_controls"]) == 3
+    assert len(report["negative_controls"]) == 4
     assert all(item["rejected_by_grader"] for item in report["negative_controls"])
 
 
