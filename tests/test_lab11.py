@@ -36,3 +36,12 @@ def test_expired_owner_can_be_replaced_but_stale_token_cannot_commit(tmp_path: P
     assert len(takeover["effects"]) == 1
     assert takeover["effects"][0]["worker_id"] == "worker-b"
     assert takeover["effects"][0]["token"] == 2
+
+
+def test_lease_expiry_without_fencing_still_allows_stale_late_commit(tmp_path: Path) -> None:
+    report = run_duplicate_worker_experiment(tmp_path)
+    broken = report["planted_no_fencing"]
+
+    assert broken["physical_effects"] == 2
+    assert [effect["token"] for effect in broken["effects"]] == [1, 2]
+    assert [effect["worker_id"] for effect in broken["effects"]] == ["worker-a", "worker-b"]
